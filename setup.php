@@ -34,6 +34,8 @@ function plugin_debug_install() {
 	api_plugin_register_hook('debug', 'poller_output', 'debug_poller_output', 'setup.php');
 	api_plugin_register_hook('debug', 'poller_bottom', 'debug_poller_bottom', 'setup.php');
 	api_plugin_register_realm('debug', 'debug.php', 'Debug', 1);
+
+	plugin_debug_setup_table();
 }
 
 function plugin_debug_uninstall() {
@@ -78,15 +80,15 @@ function debug_poller_bottom () {
 		clearstatcache();
 
 		foreach ($checks as $c) {
+			$c['issue'] = array();
 			$info = unserialize($c['info']);
 
 			$dtd = db_fetch_row_prepared('SELECT * from data_template_data WHERE local_data_id = ?', array($c['datasource']));
 
 			if (!isset($dtd['local_data_id'])) {
-				$c['issue'] = 'Data Source does not exist';
+				$c['issue'][] = __('Data Source does not exist','DSDEBUG');
 				$c['done'] = 1;
 			} else {
-				
 				if (read_config_option('boost_rrd_update_enable') == 'on') {
 					boost_process_poller_output($c['datasource']);
 				}
@@ -123,7 +125,7 @@ function debug_poller_bottom () {
 					$info['valid_data'] = 1;
 					foreach ($info['last_result'] as $k => $l) {
 						if ($l == 'U') {
-cacti_log("Bad Data Found");
+							cacti_log("Bad Data Found", false, 'DSDEBUG');
 							$info['valid_data'] = 0;
 						}
 					}
@@ -154,50 +156,70 @@ cacti_log("Bad Data Found");
 
 				if ($c['started'] < time() - ($dtd['rrd_step'] * 5)) {
 					$c['done'] = 1;
-					$c['issue'] = __('Debug not completed after 5 pollings');
+					$c['issue'][] = __('Debug not completed after 5 pollings');
 				}
 
 				if ($c['done'] == 1) {
 					// Try to determine issue
 					// Not set as Active
 					if ($info['active'] != 'on') {
-						$c['issue'] = __('Data Source is not set as Active');
+						$c['issue'][] = __('Data Source is not set as Active');
 					}
 
 					// File Permissions
 					if ((!$info['rrd_exists'] || !$info['rrd_writable']) && !$info['rrd_folder_writable']) {
-						$c['issue'] = __('RRD Folder is not writable by Poller.  RRD Owner: ') . $o . __(' Poller RunAs: ') . $info['poller_runas'];
+						$c['issue'][] = __('RRD Folder is not writable by Poller.  RRD Owner: ') . $o . __(' Poller RunAs: ') . $info['poller_runas'];
 					} elseif (!$info['rrd_writable']) {
-						$c['issue'] = __('RRD File is not writable by Poller.  RRD Owner: ') . $o . __(' Poller RunAs: ') . $info['poller_runas'];
+						$c['issue'][] = __('RRD File is not writable by Poller.  RRD Owner: ') . $o . __(' Poller RunAs: ') . $info['poller_runas'];
 					}
 
 					if ($info['rrd_match'] == 0) {
-						$c['issue'] = __('RRD File does not match Data Profile');
+						$c['issue'][] = __('RRD File does not match Data Profile');
 					}
 
 					if ($info['rra_timestamp2'] == '') {
-						$c['issue'] = __('RRD File not updated after polling');
+						$c['issue'][] = __('RRD File not updated after polling');
 					}
 					if (is_array($info['last_result']) && !empty($info['last_result'])) {
 						foreach ($info['last_result'] as $k => $l) {
 							if ($l == 'U') {
-								$c['issue'] = __('Data Source returned Bad Results');
+								$c['issue'][] = __('Data Source returned Bad Results for ' . $k);
 							}
 						}
 					} elseif ($info['last_result'] == '') {
-						$c['issue'] = __('Data Source was not polled');
+						$c['issue'][] = __('Data Source was not polled');
 					}
 
 					if ($c['issue'] == '') {
-						$c['issue'] = __('No issues found');
+						$c['issue'][] = __('No issues found');
 					}
 				}
 			}
 
 			$info = serialize($info);
-			db_execute_prepared('UPDATE plugin_debug SET `done` = ?, `info` = ?, `issue` = ? WHERE id = ?', array($c['done'], $info, $c['issue'], $c['id']));
+			db_execute_prepared('UPDATE plugin_debug SET `done` = ?, `info` = ?, `issue` = ? WHERE id = ?', array($c['done'], $info, trim(implode("\n", $c['issue'])), $c['id']));
 		}
 	}
 }
 
+function plugin_debug_setup_table() {
+	$data = array();
+	$data['primary'] = 'id';
+	$data['type'] = 'InnoDB';
+	$data['comment'] = 'Datasource Debugger Information';
 
+	$data['columns'][] = array('name' => 'id', 'type' => 'int(11)', 'NULL' => false, 'auto_increment' => true);
+	$data['columns'][] = array('name' => 'started', 'type' => 'int(11)', 'NULL' => false);
+	$data['columns'][] = array('name' => 'done', 'type' => 'int(11)', 'NULL' => false, 'DEFAULT' => '0');
+	$data['columns'][] = array('name' => 'user', 'type' => 'int(11)', 'NULL' => false);
+	$data['columns'][] = array('name' => 'datasource', 'type' => 'int(11)', 'NULL' => false);
+	$data['columns'][] = array('name' => 'info', 'type' => 'text', 'NULL' => false);
+	$data['columns'][] = array('name' => 'issue', 'type' => 'text', 'NULL' => false);
+
+	$data['keys'][] = array('name' => 'user', 'columns' => 'user');
+	$data['keys'][] = array('name' => 'done', 'columns' => 'done');
+	$data['keys'][] = array('name' => 'datasource', 'columns' => 'datasource');
+	$data['keys'][] = array('name' => 'started', 'columns' => 'started');
+
+	api_plugin_db_table_create ('debug', 'plugin_debug', $data);
+}

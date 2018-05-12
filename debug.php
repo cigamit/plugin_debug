@@ -246,6 +246,12 @@ function debug_wizard() {
 	if (sizeof($checks)) {
 		foreach ($checks as $check) {
 			$info = unserialize($check['info']);
+			$issues = explode("\n", $check['issue']);
+			$issue_line = '';
+			if (sizeof($issues)) {
+				$issue_line = $issues[0];
+			}
+
 			$user = db_fetch_cell_prepared('SELECT username FROM user_auth WHERE id = ?', array($check['user']), 'username');
 			form_alternate_row('line' . $check['id']);
 			$name = get_data_source_title($check['datasource']);
@@ -260,7 +266,7 @@ function debug_wizard() {
 			form_selectable_cell(debug_icon($info['rrd_match']), $check['id'], '', 'text-align: center;');
 			form_selectable_cell(debug_icon($info['valid_data']), $check['id'], '', 'text-align: center;');
 			form_selectable_cell(debug_icon(($info['rra_timestamp2'] != '' ? 1 : '')), $check['id'], '', 'text-align: center;');
-			form_selectable_cell($check['issue'], $check['id']);
+			form_selectable_cell('<a class=\'linkEditMain\' href=\'#\' title=\'' . str_replace("\n",'<br>',html_escape(implode("\n",$issues))) . '\'>' . html_escape(strlen(trim($issue_line)) ? $issue_line : '<none>') . '</a>', $check['id']);
 			form_checkbox_cell($check['id'], $check['id']);
 			form_end_row();
 		}
